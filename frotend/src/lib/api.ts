@@ -1,4 +1,4 @@
-export const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:8000";
+export const API_BASE = process.env.REACT_APP_API_BASE || "https://ccripter-backend.up.railway.app";
 
 export const endpoints = {
   chatStream: () => `${API_BASE}/chat/stream`,

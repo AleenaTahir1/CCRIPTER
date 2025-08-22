@@ -42,6 +42,16 @@ def on_startup():
     except Exception:
         pass
 
+# Basic root and health endpoints
+@app.get("/")
+def home():
+    return {"message": "Backend is running "}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 # Mount API routes
 app.include_router(api_router)
 
