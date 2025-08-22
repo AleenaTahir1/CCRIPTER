@@ -11,7 +11,7 @@ load_dotenv(dotenv_path=PROJECT_ROOT / ".env", override=False)
 # Now import modules that may read environment variables
 from .db.database import init_db
 from .routes.api import router as api_router
-from .services import whisper_service, gemini_service
+from .services import whisper_service, gemini_service, piper_service
 
 app = FastAPI(title="CCRIPT Chatbot Backend", version="0.1.0")
 
@@ -28,4 +28,21 @@ app.add_middleware(
 def on_startup():
     # Ensure DB and tables exist
     init_db()
-    # Preload heavy models to avoid cold-start latency 
+    # Preload heavy models to avoid cold-start latency on first request
+    try:
+        whisper_service.warmup()
+    except Exception:
+        pass
+    try:
+        gemini_service.warmup()
+    except Exception:
+        pass
+    try:
+        piper_service.warmup()
+    except Exception:
+        pass
+
+# Mount API routes
+app.include_router(api_router)
+
+# If running directly: uvicorn backend.main:app --reload
