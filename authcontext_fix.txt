@@ -1,0 +1,10 @@
+MANUAL FIX NEEDED: 
+
+In frotend/src/contexts/AuthContext.tsx, line 14:
+Change:
+  signup: (name: string, email: string, password: string) => Promise<void>;
+
+To:
+  signup: (name: string, email: string, password: string) => Promise<any>;
+
+This will fix the TypeScript interface mismatch.
