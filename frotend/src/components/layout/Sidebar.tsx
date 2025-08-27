@@ -92,7 +92,11 @@ const Sidebar: React.FC<SidebarProps> = ({
     try {
       setIsLoading(true);
       const response = await chatAPI.listChats();
-      setChats(response.data);
+      const data: any = response.data;
+      const items: Chat[] = Array.isArray(data)
+        ? data
+        : (Array.isArray(data?.chats) ? data.chats : []);
+      setChats(items);
     } catch (error) {
       toast({
         title: 'Failed to load chats',
@@ -344,7 +348,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           >
             <VStack spacing={1} align="stretch">
               <AnimatePresence>
-                {chats.map((chat, index) => (
+                {(Array.isArray(chats) ? chats : ([] as Chat[])).map((chat, index) => (
                   <MotionBox
                     key={chat.id}
                     initial={{ opacity: 0, x: -20 }}

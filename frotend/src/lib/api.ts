@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// Point frontend to the active backend by default (can be overridden via REACT_APP_API_BASE)
+// Default to local backend for development (override via REACT_APP_API_BASE on deploy)
 export const API_BASE = process.env.REACT_APP_API_BASE || "https://f1580261af9f.ngrok-free.app";
 
 // Create axios instance with auth interceptor
@@ -53,7 +53,12 @@ export const profileAPI = {
 // Chat API
 export const chatAPI = {
   createChat: (data: { title?: string }) => api.post('/chats', data),
-  listChats: (limit = 100) => api.get(`/chats?limit=${limit}`),
+  listChats: (limit = 100) =>
+    api.get(`/chats?limit=${limit}`).then((res) => {
+      const raw = res?.data as any;
+      const items = Array.isArray(raw) ? raw : (Array.isArray(raw?.chats) ? raw.chats : []);
+      return { data: items } as { data: any[] };
+    }),
   renameChat: (chatId: number, data: { title: string }) =>
     api.patch(`/chats/${chatId}`, data),
   deleteChat: (chatId: number, cascade = true) =>

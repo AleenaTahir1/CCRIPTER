@@ -18,10 +18,29 @@ from .services import whisper_service, gemini_service, piper_service
 
 app = FastAPI(title="CCRIPT Chatbot Backend", version="0.1.0")
 
-# CORS configuration for frontend
+# CORS configuration for frontend (supports local, ngrok and Vercel)
+default_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://localhost:3000",
+    "https://127.0.0.1:3000",
+    # Common tunneling host (update as needed)
+    os.getenv("NGROK_PUBLIC_URL", "https://f1580261af9f.ngrok-free.app"),
+]
+
+env_origins = os.getenv("CORS_ORIGINS")
+allow_origins = list(default_origins)
+if env_origins:
+    for o in [o.strip() for o in env_origins.split(",") if o.strip()]:
+        if o not in allow_origins:
+            allow_origins.append(o)
+
+allow_origin_regex = os.getenv("CORS_ORIGIN_REGEX", r"https://.*\.vercel\.app$")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=allow_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
