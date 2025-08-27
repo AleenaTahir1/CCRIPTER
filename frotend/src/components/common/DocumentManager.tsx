@@ -98,7 +98,11 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({
     setIsLoading(true);
     try {
       const response = await documentAPI.listDocuments();
-      setDocuments(response.data.documents);
+      const raw: any = response?.data;
+      const docs: Document[] = Array.isArray(raw)
+        ? raw
+        : (Array.isArray(raw?.documents) ? raw.documents : []);
+      setDocuments(docs);
     } catch (error) {
       console.error('Failed to load documents:', error);
       toast({
@@ -212,7 +216,7 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({
             justifyContent="center"
           >
             <FiFolder size={16} />
-            {documents.length > 0 && (
+            {Array.isArray(documents) && documents.length > 0 && (
               <Badge
                 colorScheme="brand"
                 variant="solid"
@@ -274,7 +278,7 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({
                   Loading documents...
                 </Text>
               </Box>
-            ) : documents.length === 0 ? (
+            ) : (!Array.isArray(documents) || documents.length === 0) ? (
               <Box py={8} textAlign="center">
                 <Icon as={FiUpload} w={8} h={8} color={subtleColor} mb={2} />
                 <Text fontSize="sm" color={subtleColor} mb={2}>
@@ -287,7 +291,7 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({
             ) : (
               <VStack spacing={1} align="stretch">
                 <AnimatePresence>
-                  {documents.map((document, index) => {
+                  {(Array.isArray(documents) ? documents : ([] as Document[])).map((document, index) => {
                     const fileInfo = getFileIcon(document.file_type);
                     const isSelected = selectedDocuments.includes(document.id);
                     
