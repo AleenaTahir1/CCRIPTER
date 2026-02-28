@@ -12,13 +12,19 @@ async def synthesize(text: str) -> bytes:
     if not PIPER_PATH or not PIPER_VOICE:
         raise RuntimeError("PIPER_PATH and PIPER_VOICE must be set in environment")
 
-    # Prefer explicitly providing the accompanying JSON config if present (Windows reliability)
+    # Resolve all paths to absolute (relative paths are relative to the project root)
+    project_root = Path(__file__).resolve().parents[2]
+
     voice_path = Path(PIPER_VOICE)
+    if not voice_path.is_absolute():
+        voice_path = (project_root / voice_path).resolve()
     json_guess = voice_path.with_suffix(voice_path.suffix + ".json")  # e.g., .onnx.json
     use_json = json_guess if json_guess.exists() else None
 
     # Run Piper in its own directory so it can find DLLs and espeak-ng-data (Windows)
     exe_path = Path(PIPER_PATH)
+    if not exe_path.is_absolute():
+        exe_path = (project_root / exe_path).resolve()
     exe_dir = exe_path.parent
     env = os.environ.copy()
     if "ESPEAK_DATA_PATH" not in env:
@@ -29,7 +35,7 @@ async def synthesize(text: str) -> bytes:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_out:
         out_path = tmp_out.name
 
-    cmd = [PIPER_PATH, "-m", str(voice_path)]
+    cmd = [str(exe_path), "-m", str(voice_path)]
     if use_json:
         cmd += ["-c", str(use_json)]
     cmd += ["-f", out_path]
@@ -101,11 +107,17 @@ def warmup() -> None:
     if not PIPER_PATH or not PIPER_VOICE:
         return
 
+    project_root = Path(__file__).resolve().parents[2]
+
     voice_path = Path(PIPER_VOICE)
+    if not voice_path.is_absolute():
+        voice_path = (project_root / voice_path).resolve()
     json_guess = voice_path.with_suffix(voice_path.suffix + ".json")
     use_json = json_guess if json_guess.exists() else None
 
     exe_path = Path(PIPER_PATH)
+    if not exe_path.is_absolute():
+        exe_path = (project_root / exe_path).resolve()
     exe_dir = exe_path.parent
     env = os.environ.copy()
     if "ESPEAK_DATA_PATH" not in env:
@@ -116,7 +128,7 @@ def warmup() -> None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_out:
         out_path = tmp_out.name
 
-    cmd = [PIPER_PATH, "-m", str(voice_path)]
+    cmd = [str(exe_path), "-m", str(voice_path)]
     if use_json:
         cmd += ["-c", str(use_json)]
     cmd += ["-f", out_path]

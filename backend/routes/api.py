@@ -488,25 +488,47 @@ async def chat_stream(req: ChatRequest, repo = Depends(get_repo), current_user =
 
         full_reply = ""
         try:
-            # Stream real Gemini chunks via thread (sync generator → async)
-            stream_iter = iter(gemini_service.generate_reply_stream(
-                system_prompt, history_text, enhanced_query
-            ))
-            while True:
+            # Stream Gemini chunks using a thread-safe queue to avoid
+            # StopIteration leaking into the async generator (PEP 479).
+            import queue as _queue
+            chunk_queue = _queue.Queue()
+
+            def _produce_chunks():
                 try:
-                    chunk = await anyio.to_thread.run_sync(lambda: next(stream_iter))
-                    full_reply += chunk
-                    yield f"data: {json.dumps({'type': 'delta', 'text': chunk})}\n\n"
-                except StopIteration:
+                    for chunk in gemini_service.generate_reply_stream(
+                        system_prompt, history_text, enhanced_query
+                    ):
+                        chunk_queue.put(chunk)
+                except Exception as exc:
+                    chunk_queue.put(exc)
+                finally:
+                    chunk_queue.put(None)  # sentinel: stream finished
+
+            # Run the sync generator in a background thread
+            import threading
+            t = threading.Thread(target=_produce_chunks, daemon=True)
+            t.start()
+
+            while True:
+                item = await anyio.to_thread.run_sync(chunk_queue.get)
+                if item is None:
                     break
+                if isinstance(item, Exception):
+                    raise item
+                full_reply += item
+                yield f"data: {json.dumps({'type': 'delta', 'text': item})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
             return
 
         # Save to DB after streaming completes (store original query, not enhanced)
-        message = await repo.create_message(
-            user_id=user_id, query=req.query, response=full_reply.strip(), chat_id=chat_id
-        )
+        try:
+            message = await repo.create_message(
+                user_id=user_id, query=req.query, response=full_reply.strip(), chat_id=chat_id
+            )
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': f'DB save error: {e}'})}\n\n"
+            return
 
         end_evt = {
             "type": "end",
