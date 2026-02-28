@@ -262,9 +262,9 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUploaded, isDisabled = fa
         style={{ display: 'none' }}
       />
 
-      <Modal isOpen={isOpen} onClose={() => setIsOpen(false)} size="xl">
+      <Modal isOpen={isOpen} onClose={() => setIsOpen(false)} size="xl" scrollBehavior="inside">
         <ModalOverlay bg="blackAlpha.300" />
-        <ModalContent bg={bgColor} rounded="2xl" mx={4}>
+        <ModalContent bg={bgColor} rounded="2xl" mx={4} maxW={{ base: 'calc(100vw - 32px)', md: '48rem' }} overflow="hidden">
           <ModalHeader>
             <HStack>
               <Icon as={FiUpload} color="brand.500" />
@@ -341,11 +341,11 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUploaded, isDisabled = fa
                             rounded="lg"
                             bg={bgColor}
                           >
-                            <HStack spacing={3}>
-                              <Icon as={fileInfo.icon} color={fileInfo.color} w={5} h={5} />
-                              <VStack flex={1} align="stretch" spacing={2}>
-                                <HStack justify="space-between">
-                                  <Text fontWeight="medium" noOfLines={1}>
+                            <HStack spacing={3} overflow="hidden">
+                              <Icon as={fileInfo.icon} color={fileInfo.color} w={5} h={5} flexShrink={0} />
+                              <VStack flex={1} align="stretch" spacing={2} minW={0}>
+                                <HStack justify="space-between" spacing={2}>
+                                  <Text fontWeight="medium" noOfLines={1} flex={1} minW={0}>
                                     {upload.file.name}
                                   </Text>
                                   <IconButton
@@ -353,6 +353,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUploaded, isDisabled = fa
                                     icon={<FiX />}
                                     size="xs"
                                     variant="ghost"
+                                    flexShrink={0}
                                     onClick={() => removeUpload(upload.id)}
                                   />
                                 </HStack>

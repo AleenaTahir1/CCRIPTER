@@ -424,60 +424,103 @@ async def voice_chat(
 
 @router.post("/chat/stream")
 async def chat_stream(req: ChatRequest, repo = Depends(get_repo), current_user = Depends(get_current_user)):
-    """Stream LLM reply over SSE (simulated typing)."""
-    # Prepare context
+    """Stream LLM reply over SSE with real Gemini token streaming.
+    Supports optional document_ids for document-aware chat."""
+    import anyio
+
     user_id = str(current_user.id)
     chat_id = req.chat_id
-    is_new_chat = False
-    
+
     if chat_id is None:
         smart_title = generate_smart_title(req.query)
         chat = await repo.create_chat(user_id=user_id, title=smart_title)
         chat_id = chat.id
-        is_new_chat = True
     else:
-        # Check if this is the first message in an existing "New Chat"
         messages = await repo.get_recent_history(user_id=user_id, chat_id=chat_id, limit=1)
-        if not messages:  # No previous messages, update title
+        if not messages:
             smart_title = generate_smart_title(req.query)
             await repo.rename_chat(user_id=user_id, chat_id=chat_id, title=smart_title)
-            is_new_chat = True
-    
+
     history = await repo.get_recent_history(user_id=user_id, chat_id=chat_id, limit=10)
     history_text = "\n".join([f"User: {m.query}\nAssistant: {m.response}" for m in history])
 
-    # Get full reply first (we'll stream it in chunks to mimic typing)
-    try:
-        system_prompt = gemini_service.read_system_prompt()
-        reply = await gemini_service.generate_reply(system_prompt, history_text, req.query)
-    except Exception as e:
-        # Send an SSE error as a single event
-        async def err_gen():
-            yield f"data: {json.dumps({'type':'error','message': str(e)})}\n\n"
-        return StreamingResponse(err_gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
+    system_prompt = gemini_service.read_system_prompt()
 
-    # Persist
-    message = await repo.create_message(user_id=user_id, query=req.query, response=reply, chat_id=chat_id)
+    # ── Build document context if document_ids provided ──
+    document_context = ""
+    print(f"[STREAM] document_ids received: {req.document_ids}")
+    if req.document_ids:
+        documents = await repo.get_documents_by_ids(
+            document_ids=req.document_ids,
+            user_id=user_id
+        )
+        print(f"[STREAM] documents found: {len(documents) if documents else 0}")
+        if documents:
+            doc_texts = []
+            for doc in documents:
+                has_text = bool(doc.extracted_text)
+                text_len = len(doc.extracted_text) if doc.extracted_text else 0
+                print(f"[STREAM]   doc id={doc.id} filename={doc.filename} has_text={has_text} text_len={text_len}")
+                if doc.extracted_text:
+                    doc_texts.append(f"Document: {doc.filename}\n{doc.extracted_text}")
+            if doc_texts:
+                document_context = "\n\n--- DOCUMENT CONTEXT ---\n" + "\n\n".join(doc_texts) + "\n--- END CONTEXT ---\n\n"
+                system_prompt += (
+                    "\n\nIMPORTANT: The user has attached documents to this conversation. "
+                    "The full document content is included in the user's message below between "
+                    "'--- DOCUMENT CONTEXT ---' markers. You MUST read this content and use it "
+                    "to answer the user's questions. Do NOT say you cannot access documents — "
+                    "the text has already been extracted and provided to you. "
+                    "Summarize, quote, and reference the document content directly."
+                )
+                print(f"[STREAM] document context length: {len(document_context)} chars")
+            else:
+                print("[STREAM] WARNING: documents found but none had extracted_text!")
+    else:
+        print("[STREAM] no document_ids in request")
 
-    # Chunk reply into small pieces - optimized for immediate delivery
-    def chunks(s: str, n: int = 80):  # Larger chunks for faster delivery
-        for i in range(0, len(s), n):
-            yield s[i:i+n]
+    enhanced_query = document_context + req.query if document_context else req.query
 
     async def event_gen():
-        # Start event with metadata
-        start_evt = {"type": "start", "message_id": message.id, "user_id": message.user_id, "chat_id": chat_id}
+        # Send start event immediately so frontend can show the bubble
+        start_evt = {"type": "start", "chat_id": chat_id}
         yield f"data: {json.dumps(start_evt)}\n\n"
 
-        for part in chunks(reply, 80):  # Use larger chunk size
-            yield f"data: {json.dumps({'type':'delta','text': part})}\n\n"
-            await asyncio.sleep(0.01)  # Minimal delay for immediate delivery
+        full_reply = ""
+        try:
+            # Stream real Gemini chunks via thread (sync generator → async)
+            stream_iter = iter(gemini_service.generate_reply_stream(
+                system_prompt, history_text, enhanced_query
+            ))
+            while True:
+                try:
+                    chunk = await anyio.to_thread.run_sync(lambda: next(stream_iter))
+                    full_reply += chunk
+                    yield f"data: {json.dumps({'type': 'delta', 'text': chunk})}\n\n"
+                except StopIteration:
+                    break
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            return
 
-        # Final event with full text
-        end_evt = {"type": "end", "text": reply}
+        # Save to DB after streaming completes (store original query, not enhanced)
+        message = await repo.create_message(
+            user_id=user_id, query=req.query, response=full_reply.strip(), chat_id=chat_id
+        )
+
+        end_evt = {
+            "type": "end",
+            "text": full_reply.strip(),
+            "message_id": message.id,
+            "chat_id": chat_id,
+        }
         yield f"data: {json.dumps(end_evt)}\n\n"
 
-    return StreamingResponse(event_gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 
 # Chats CRUD
@@ -734,7 +777,7 @@ async def chat_with_document(
         system_prompt = gemini_service.read_system_prompt()
         # Add document instruction to system prompt if we have document context
         if document_context:
-            system_prompt += "\n\nYou have been provided with document content above. Use this context to answer questions about the documents. Reference specific information from the documents when relevant."
+            system_prompt += "\n\nIMPORTANT: The user has attached documents to this conversation. The full document content is included in the user's message below between '--- DOCUMENT CONTEXT ---' markers. You MUST read this content and use it to answer the user's questions. Do NOT say you cannot access documents — the text has already been extracted and provided to you. Summarize, quote, and reference the document content directly."
         
         reply = await gemini_service.generate_reply(system_prompt, history_text, enhanced_query)
     except Exception as e:

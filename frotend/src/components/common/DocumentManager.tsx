@@ -118,6 +118,10 @@ const DocumentManager: React.FC<DocumentManagerProps> = ({
   const handleDocumentUploaded = (document: Document) => {
     // Add the new document to the list
     setDocuments(prev => [document, ...prev]);
+    // Auto-select the uploaded document for chat context
+    if (onDocumentSelectionChange && !selectedDocuments.includes(document.id)) {
+      onDocumentSelectionChange([...selectedDocuments, document.id]);
+    }
   };
 
   const handleDeleteDocument = async (documentId: number) => {

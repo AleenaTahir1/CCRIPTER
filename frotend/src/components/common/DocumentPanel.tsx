@@ -10,10 +10,7 @@ import {
   Tooltip,
 } from '@chakra-ui/react';
 import { FiFolder, FiChevronRight, FiChevronLeft } from 'react-icons/fi';
-import { motion } from 'framer-motion';
 import DocumentManager from './DocumentManager';
-
-const MotionBox = motion(Box);
 
 interface DocumentPanelProps {
   isCollapsed?: boolean;
@@ -38,17 +35,13 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
   const hoverBg = useColorModeValue('rgba(249, 115, 22, 0.05)', 'rgba(249, 115, 22, 0.1)');
 
   return (
-    <MotionBox
+    <Box
       h="100%"
+      w="100%"
       bg={bgColor}
       backdropFilter="blur(20px)"
       position="relative"
       overflow="hidden"
-      initial={false}
-      animate={{
-        width: isCollapsed ? '60px' : '320px',
-      }}
-      transition={{ duration: 0.3, ease: 'easeInOut' }}
       display="flex"
       flexDirection="column"
     >
@@ -158,7 +151,7 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
           refreshTrigger={refreshTrigger}
         />
       </Box>
-    </MotionBox>
+    </Box>
   );
 };
 

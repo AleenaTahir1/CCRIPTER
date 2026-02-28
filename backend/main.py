@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 # Load .env from project root (CCRIPT-Chatbot/.env) BEFORE importing app modules
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(dotenv_path=PROJECT_ROOT / ".env", override=False)
+load_dotenv(dotenv_path=PROJECT_ROOT / ".env", override=True)
 
 # Now import modules that may read environment variables
 from .db.database import init_db

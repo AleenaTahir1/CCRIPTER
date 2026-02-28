@@ -10,22 +10,18 @@ import {
   useColorModeValue,
   useToast,
   Spinner,
-  Button,
-  Progress,
   Modal,
   ModalOverlay,
   ModalContent,
   ModalBody,
   useDisclosure,
-  Badge,
-  Tooltip,
 } from '@chakra-ui/react';
-import { FiSend, FiMic, FiMicOff, FiVolume2, FiX, FiCheck, FiPause, FiFile, FiFolder } from 'react-icons/fi';
+import { FiSend, FiMic, FiVolume2, FiX, FiCheck, FiPause, FiFile, FiZap, FiMessageCircle, FiCommand } from 'react-icons/fi';
 import { motion } from 'framer-motion';
 import { chatAPI, endpoints } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import FileUpload from '../common/FileUpload';
-import UserAvatar from '../common/UserAvatar';
+import NeuralLogo from '../common/NeuralLogo';
 import { Document } from '../../types';
 
 const MotionBox = motion(Box);
@@ -48,24 +44,20 @@ interface ChatAreaProps {
   isSidebarCollapsed?: boolean;
   selectedDocuments?: number[];
   onDocumentSelectionChange?: (documentIds: number[]) => void;
-  onDocumentUploaded?: () => void; // Add callback for document upload
-  onDocumentPanelToggle?: () => void; // Add callback for document panel toggle
 }
 
-const ChatArea: React.FC<ChatAreaProps> = ({ 
-  chatId, 
-  onChatCreated, 
-  onChatTitleUpdated, 
+const ChatArea: React.FC<ChatAreaProps> = ({
+  chatId,
+  onChatCreated,
+  onChatTitleUpdated,
   isSidebarCollapsed = false,
   selectedDocuments = [],
   onDocumentSelectionChange,
-  onDocumentUploaded,
-  onDocumentPanelToggle
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
+  const [, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
@@ -76,39 +68,56 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [audioDuration, setAudioDuration] = useState<number>(0);
   const [audioCurrentTime, setAudioCurrentTime] = useState<number>(0);
   const recordingInterval = useRef<NodeJS.Timeout>();
-  
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const ttsQueueRef = useRef<{
+    items: Promise<Blob | null>[];
+    playIdx: number;
+    playing: boolean;
+    audio: HTMLAudioElement | null;
+    msgId: number;
+    gen: number; // generation counter — increments on each new message to discard stale TTS
+  }>({ items: [], playIdx: 0, playing: false, audio: null, msgId: 0, gen: 0 });
+
   const { user } = useAuth();
   const toast = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { isOpen: isRecordingModalOpen, onOpen: onRecordingModalOpen, onClose: onRecordingModalClose } = useDisclosure();
-  
-  const bgColor = useColorModeValue('glass-bg', 'glass-bg');
-  const chatBgColor = useColorModeValue('glass-bg', 'glass-bg');
-  const borderColor = useColorModeValue('glass-border', 'glass-border');
-  const userBg = useColorModeValue('linear-gradient(135deg, #f97316 0%, #ea580c 100%)', 'linear-gradient(135deg, #fb923c 0%, #f97316 100%)');
-  const assistantBg = useColorModeValue('rgba(255, 255, 255, 0.9)', 'rgba(55, 65, 81, 0.9)');
-  const textColor = useColorModeValue('gray.800', 'gray.100');
-  const subtleColor = useColorModeValue('gray.600', 'gray.400');
-  const inputBg = useColorModeValue('white', 'gray.800');
-  const brandBg = useColorModeValue('brand.50', 'brand.900');
-  const avatarBorder = useColorModeValue('white', 'gray.800');
+
+  // Colors
+  const textColor = useColorModeValue('surface.800', 'surface.100');
+  const subtleColor = useColorModeValue('surface.500', 'surface.500');
+  const userBubbleBg = useColorModeValue('brand.500', 'brand.500');
+  const userBubbleColor = useColorModeValue('surface.950', 'surface.950');
+  const aiBubbleBg = useColorModeValue('rgba(255,255,255,0.8)', 'rgba(24, 24, 27, 0.6)');
+  const aiBubbleBorder = useColorModeValue('rgba(0,0,0,0.06)', 'rgba(255,255,255,0.06)');
+  const inputBg = useColorModeValue('white', 'rgba(24, 24, 27, 0.6)');
+  const inputBorderColor = useColorModeValue('rgba(0,0,0,0.08)', 'rgba(255,255,255,0.06)');
+  const chatAreaBg = useColorModeValue('transparent', 'transparent');
+  const suggestBg = useColorModeValue('rgba(255,255,255,0.6)', 'rgba(255,255,255,0.03)');
+  const suggestBorder = useColorModeValue('rgba(0,0,0,0.06)', 'rgba(255,255,255,0.06)');
+  const suggestHoverBg = useColorModeValue('rgba(255,255,255,0.9)', 'rgba(255,255,255,0.06)');
+  const suggestHoverBorder = useColorModeValue('brand.200', 'brand.800');
+  const docContextBg = useColorModeValue('brand.50', 'rgba(245,158,11,0.06)');
+  const docContextBorder = useColorModeValue('brand.200', 'rgba(245,158,11,0.15)');
+  const inputFocusBorder = useColorModeValue('brand.300', 'brand.600');
+  const placeholderColor = useColorModeValue('surface.400', 'surface.600');
+  const audioHoverBg = useColorModeValue('brand.50', 'rgba(245,158,11,0.1)');
+  const welcomeBg = useColorModeValue('surface.50', 'surface.950');
+  const recordingModalBg = useColorModeValue('white', 'surface.900');
+  const cancelHoverBg = useColorModeValue('red.50', 'rgba(239,68,68,0.1)');
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  useEffect(() => { scrollToBottom(); }, [messages]);
 
   useEffect(() => {
     if (chatId) {
-      // Stop any playing audio when switching to a different chat
       stopAllAudio();
       stopStreaming();
       loadChatMessages();
     } else {
-      // Stop audio when creating new chat too
       stopAllAudio();
       stopStreaming();
       setMessages([]);
@@ -117,23 +126,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   const loadChatMessages = async () => {
     if (!chatId) return;
-    
     try {
       const response = await chatAPI.getChatMessages(chatId);
-      setMessages(response.data.reverse()); // API returns newest first, we want oldest first
+      setMessages(response.data.reverse());
     } catch (error) {
-      toast({
-        title: 'Failed to load messages',
-        status: 'error',
-        duration: 3000,
-      });
+      toast({ title: 'Failed to load messages', status: 'error', duration: 3000 });
     }
   };
 
   const sendMessage = async () => {
     if (!inputValue.trim() || isLoading) return;
-
-    // Stop any playing audio and streaming when starting new message
     stopAllAudio();
     stopStreaming();
 
@@ -141,92 +143,150 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     setInputValue('');
     setIsLoading(true);
 
+    // ── Always use SSE streaming (with optional document_ids) ──
+    const tempId = Date.now();
+    const placeholderMsg: Message = {
+      id: tempId,
+      user_id: '',
+      chat_id: chatId,
+      timestamp: new Date().toISOString(),
+      query: userMessage,
+      response: '',
+    };
+    setMessages((prev) => [...prev, placeholderMsg]);
+
+    const abortCtrl = new AbortController();
+    streamAbortRef.current = abortCtrl;
+
+    // Reset TTS queue for this message
+    stopTTSQueue();
+    ttsQueueRef.current.msgId = tempId;
+
     try {
-      let currentChatId = chatId;
-      
-      // If this is the first message (no chatId), let backend auto-create with smart title
-      if (!currentChatId) {
-        // Backend will handle smart title generation automatically
-        // We'll get the chatId from the response
-      }
-
-      // Use document-aware chat if documents are selected
-      let response;
+      const token = localStorage.getItem('auth_token');
+      const body: Record<string, unknown> = { query: userMessage, chat_id: chatId };
       if (selectedDocuments.length > 0) {
-        console.log('[DEBUG] Chatting with documents:', selectedDocuments);
-        response = await chatAPI.chatWithDocument({
-          query: userMessage,
-          document_ids: selectedDocuments,
-          chat_id: currentChatId,
-        });
-      } else {
-        console.log('[DEBUG] Regular chat without documents');
-        response = await chatAPI.sendMessage({
-          query: userMessage,
-          chat_id: currentChatId,
-        });
+        body.document_ids = selectedDocuments;
       }
 
-      // Get chatId from response (backend auto-creates chat if needed)
-      const newChatId = response.data.chat_id;
-      
-      // Notify parent component about the new chat if it was created
-      if (!currentChatId && newChatId && onChatCreated) {
-        onChatCreated(newChatId);
+      console.log('[ChatArea] streaming request body:', JSON.stringify(body));
+      const res = await fetch(endpoints.chatStream(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify(body),
+        signal: abortCtrl.signal,
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server error ${res.status}`);
       }
-      
-      // If this is the first message for an existing chat, trigger title update
-      if (currentChatId && onChatTitleUpdated && messages.length === 0) {
-        // Generate same title as backend would
-        const words = userMessage.trim().split(/\s+/);
-        const meaningfulWords = words.filter((word: string) => 
-          word.length > 2 && 
-          !['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'have', 'has', 'had', 'will', 'would', 'could', 'should', 'can', 'may', 'might', 'do', 'does', 'did', 'am', 'be', 'been', 'being', 'a', 'an', 'this', 'that', 'these', 'those', 'i', 'me', 'my', 'mine', 'you', 'your', 'yours', 'he', 'him', 'his', 'she', 'her', 'hers', 'it', 'its', 'we', 'us', 'our', 'ours', 'they', 'them', 'their', 'theirs'].includes(word.toLowerCase())
-        );
-        
-        let titleWords;
-        if (meaningfulWords.length >= 3) {
-          titleWords = meaningfulWords.slice(0, 3);
-        } else if (meaningfulWords.length >= 2) {
-          titleWords = meaningfulWords.slice(0, 2);
-        } else if (meaningfulWords.length > 0) {
-          titleWords = meaningfulWords.slice(0, 1);
-        } else {
-          titleWords = words.slice(0, Math.min(3, words.length));
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalMsgId = tempId;
+      let finalChatId = chatId;
+      let fullText = '';
+      let sentenceBuf = ''; // accumulates text for TTS sentence detection
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr) continue;
+
+          try {
+            const evt = JSON.parse(jsonStr);
+
+            if (evt.type === 'start') {
+              finalChatId = evt.chat_id;
+              if (!chatId && finalChatId && onChatCreated) {
+                onChatCreated(finalChatId);
+              }
+            } else if (evt.type === 'delta') {
+              fullText += evt.text;
+              sentenceBuf += evt.text;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === tempId ? { ...m, response: fullText, chat_id: finalChatId } : m
+                )
+              );
+
+              // Progressive TTS: fire every ~60 chars for faster first audio
+              if (sentenceBuf.length >= 60) {
+                // Try to break at a sentence boundary
+                const lastBreak = Math.max(
+                  sentenceBuf.lastIndexOf('. '),
+                  sentenceBuf.lastIndexOf('! '),
+                  sentenceBuf.lastIndexOf('? '),
+                  sentenceBuf.lastIndexOf('.\n'),
+                  sentenceBuf.lastIndexOf(', '),
+                );
+                const splitAt = lastBreak > 15 ? lastBreak + 1 : sentenceBuf.length;
+                const chunk = sentenceBuf.slice(0, splitAt).trim();
+                sentenceBuf = sentenceBuf.slice(splitAt);
+                if (chunk.length >= 8) {
+                  enqueueTTS(chunk);
+                }
+              }
+            } else if (evt.type === 'end') {
+              finalMsgId = evt.message_id;
+              finalChatId = evt.chat_id;
+              const finalText = evt.text || fullText;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === tempId
+                    ? { ...m, id: finalMsgId, response: finalText, chat_id: finalChatId }
+                    : m
+                )
+              );
+              // Update the message id in TTS queue
+              ttsQueueRef.current.msgId = finalMsgId;
+              // Flush any remaining text to TTS
+              if (sentenceBuf.trim().length >= 3) {
+                enqueueTTS(sentenceBuf.trim());
+              }
+              sentenceBuf = '';
+            } else if (evt.type === 'error') {
+              throw new Error(evt.message || 'Streaming error');
+            }
+          } catch (parseErr: any) {
+            if (parseErr.message && !parseErr.message.includes('JSON'))
+              throw parseErr;
+          }
         }
-        
-        const smartTitle = titleWords.map((word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
-        onChatTitleUpdated(currentChatId, smartTitle || 'New Chat');
       }
-
-      const newMessage: Message = {
-        id: response.data.message_id,
-        user_id: response.data.user_id,
-        chat_id: response.data.chat_id,
-        timestamp: response.data.timestamp,
-        query: response.data.query,
-        response: response.data.response,
-      };
-
-      setMessages(prev => [...prev, newMessage]);
-
-      // Start voice synthesis immediately in parallel with text display
-      if (newMessage.response) {
-        synthesizeText(newMessage.response, newMessage.id, true);
-      }
-
     } catch (error: any) {
+      if (error.name === 'AbortError') return;
       toast({
         title: 'Failed to send message',
-        description: error.response?.data?.detail || 'Something went wrong',
+        description: error.message || 'Something went wrong',
         status: 'error',
         duration: 3000,
       });
+      // Remove the placeholder if streaming failed entirely with no text
+      setMessages((prev) => {
+        const msg = prev.find((m) => m.id === tempId);
+        if (msg && !msg.response) return prev.filter((m) => m.id !== tempId);
+        return prev;
+      });
     } finally {
+      streamAbortRef.current = null;
       setIsLoading(false);
     }
   };
 
+  // ── Recording ──
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -238,11 +298,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const blob = new Blob(chunks, { type: 'audio/wav' });
         onRecordingModalClose();
         await sendVoiceMessage(blob);
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach((track) => track.stop());
         setRecordingTime(0);
-        if (recordingInterval.current) {
-          clearInterval(recordingInterval.current);
-        }
+        if (recordingInterval.current) clearInterval(recordingInterval.current);
       };
 
       recorder.start();
@@ -251,17 +309,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       setRecordingTime(0);
       onRecordingModalOpen();
 
-      // Start timer
       recordingInterval.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
+        setRecordingTime((prev) => prev + 1);
       }, 1000);
     } catch (error) {
-      toast({
-        title: 'Failed to start recording',
-        description: 'Please allow microphone access',
-        status: 'error',
-        duration: 3000,
-      });
+      toast({ title: 'Microphone access required', status: 'error', duration: 3000 });
     }
   };
 
@@ -270,22 +322,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       mediaRecorder.stop();
       setMediaRecorder(null);
       setIsRecording(false);
-      if (recordingInterval.current) {
-        clearInterval(recordingInterval.current);
-      }
+      if (recordingInterval.current) clearInterval(recordingInterval.current);
     }
   };
 
   const cancelRecording = () => {
     if (mediaRecorder && mediaRecorder.state === 'recording') {
-      mediaRecorder.stream.getTracks().forEach(track => track.stop());
+      mediaRecorder.stream.getTracks().forEach((track) => track.stop());
       setMediaRecorder(null);
       setIsRecording(false);
       setRecordingTime(0);
       onRecordingModalClose();
-      if (recordingInterval.current) {
-        clearInterval(recordingInterval.current);
-      }
+      if (recordingInterval.current) clearInterval(recordingInterval.current);
     }
   };
 
@@ -302,19 +350,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   const formatMessageTime = (timestamp: string) => {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit',
-      hour12: true 
-    }) + ' PKT';
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
-
-
+  // ── Audio Controls ──
   const stopCurrentAudio = () => {
     if (currentAudio) {
       try {
-        // Prevent race conditions by immediately setting states
         setCurrentAudio(null);
         setPlayingMessageId(null);
         setIsAudioPaused(false);
@@ -322,14 +364,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         setIsAudioLoading(false);
         setAudioDuration(0);
         setAudioCurrentTime(0);
-        
-        // Then stop the audio
         currentAudio.pause();
         currentAudio.currentTime = 0;
-      } catch (error) {
-        // Ignore errors when stopping audio
-        console.warn('Error stopping audio:', error);
-      }
+      } catch (error) { /* ignore */ }
     }
   };
 
@@ -339,10 +376,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         setAudioPosition(currentAudio.currentTime);
         currentAudio.pause();
         setIsAudioPaused(true);
-      } catch (error) {
-        console.warn('Error pausing audio:', error);
-        stopCurrentAudio();
-      }
+      } catch (error) { stopCurrentAudio(); }
     }
   };
 
@@ -352,16 +386,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         currentAudio.currentTime = audioPosition;
         await currentAudio.play();
         setIsAudioPaused(false);
-      } catch (error) {
-        console.warn('Error resuming audio:', error);
-        stopCurrentAudio();
-      }
+      } catch (error) { stopCurrentAudio(); }
     }
   };
 
   const synthesizeText = async (text: string, messageId: number, autoPlay: boolean = false) => {
     try {
-      // Stop any currently playing audio
       stopCurrentAudio();
       setIsAudioLoading(true);
 
@@ -370,7 +400,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token && { 'Authorization': `Bearer ${token}` }),
+          ...(token && { Authorization: `Bearer ${token}` }),
         },
         body: JSON.stringify({ text }),
       });
@@ -382,13 +412,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
       const audioBlob = await response.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
-      
       const audio = new Audio(audioUrl);
-      
-      // Optimize for immediate playback
       audio.preload = 'auto';
-      
-      // Set up event handlers before playing
+
       audio.onended = () => {
         setCurrentAudio(null);
         setPlayingMessageId(null);
@@ -397,15 +423,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         setIsAudioLoading(false);
         URL.revokeObjectURL(audioUrl);
       };
-      
-      audio.onerror = (error) => {
-        console.error('Audio error:', error);
-        toast({
-          title: 'Audio playback failed',
-          description: 'Could not play the synthesized audio',
-          status: 'error',
-          duration: 3000,
-        });
+
+      audio.onerror = () => {
         setCurrentAudio(null);
         setPlayingMessageId(null);
         setIsAudioPaused(false);
@@ -414,33 +433,21 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         URL.revokeObjectURL(audioUrl);
       };
 
-      // Optimized loading and playback
       const playAudio = async () => {
         setIsAudioLoading(false);
         setAudioDuration(audio.duration || 0);
-        
-        // Set up time update listener
-        audio.ontimeupdate = () => {
-          setAudioCurrentTime(audio.currentTime);
-        };
-        
+        audio.ontimeupdate = () => setAudioCurrentTime(audio.currentTime);
+
         if (autoPlay) {
           try {
             await audio.play();
             setCurrentAudio(audio);
             setPlayingMessageId(messageId);
             setIsAudioPaused(false);
-          } catch (playError) {
-            console.warn('Auto-play failed, setting up for manual play:', playError);
+          } catch {
             setCurrentAudio(audio);
             setPlayingMessageId(messageId);
             setIsAudioPaused(true);
-            toast({
-              title: 'Click to play audio',
-              description: 'Browser prevented auto-play. Click the voice button to play.',
-              status: 'info',
-              duration: 3000,
-            });
           }
         } else {
           setCurrentAudio(audio);
@@ -449,38 +456,27 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         }
       };
 
-      // Try immediate playback first, fallback to canplaythrough
-      if (audio.readyState >= 3) {
-        await playAudio();
-      } else {
-        audio.oncanplaythrough = playAudio;
-        audio.load();
-      }
-
+      if (audio.readyState >= 3) await playAudio();
+      else { audio.oncanplaythrough = playAudio; audio.load(); }
     } catch (error: any) {
-      console.error('TTS Error:', error);
       setIsAudioLoading(false);
       toast({
-        title: 'Failed to generate speech',
-        description: error.message || 'Voice synthesis is not available',
+        title: 'Speech synthesis unavailable',
+        description: error.message || 'Voice is not available',
         status: 'error',
-        duration: 4000,
+        duration: 3000,
       });
     }
   };
 
   const playMessageAudio = async (messageId: number, audioUrl: string, autoPlay: boolean = true) => {
     try {
-      // Stop any currently playing audio
       stopCurrentAudio();
       setIsAudioLoading(true);
 
       const audio = new Audio(audioUrl);
-      
-      // Optimize for immediate playback
       audio.preload = 'auto';
-      
-      // Set up event handlers before playing
+
       audio.onended = () => {
         setCurrentAudio(null);
         setPlayingMessageId(null);
@@ -488,13 +484,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         setAudioPosition(0);
         setIsAudioLoading(false);
       };
-      
+
       audio.onerror = () => {
-        toast({
-          title: 'Audio playback failed',
-          status: 'error',
-          duration: 2000,
-        });
         setCurrentAudio(null);
         setPlayingMessageId(null);
         setIsAudioPaused(false);
@@ -502,24 +493,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         setIsAudioLoading(false);
       };
 
-      // Optimized loading and playback
       const playAudio = async () => {
         setIsAudioLoading(false);
         setAudioDuration(audio.duration || 0);
-        
-        // Set up time update listener
-        audio.ontimeupdate = () => {
-          setAudioCurrentTime(audio.currentTime);
-        };
-        
+        audio.ontimeupdate = () => setAudioCurrentTime(audio.currentTime);
+
         if (autoPlay) {
           try {
             await audio.play();
             setCurrentAudio(audio);
             setPlayingMessageId(messageId);
             setIsAudioPaused(false);
-          } catch (playError) {
-            console.warn('Auto-play failed:', playError);
+          } catch {
             setCurrentAudio(audio);
             setPlayingMessageId(messageId);
             setIsAudioPaused(true);
@@ -531,45 +516,23 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         }
       };
 
-      // Try immediate playback first, fallback to canplaythrough
-      if (audio.readyState >= 3) {
-        await playAudio();
-      } else {
-        audio.oncanplaythrough = playAudio;
-        audio.load();
-      }
+      if (audio.readyState >= 3) await playAudio();
+      else { audio.oncanplaythrough = playAudio; audio.load(); }
 
       return audio;
     } catch (error) {
       setIsAudioLoading(false);
-      toast({
-        title: 'Audio setup failed',
-        status: 'error',
-        duration: 2000,
-      });
-    }
-  };
-
-  const pauseMessageAudio = async () => {
-    if (currentAudio && !isAudioLoading) {
-      if (currentAudio.paused) {
-        await resumeCurrentAudio();
-      } else {
-        pauseCurrentAudio();
-      }
     }
   };
 
   const sendVoiceMessage = async (audioBlob: Blob) => {
     setIsLoading(true);
-
     try {
       const formData = new FormData();
       formData.append('file', audioBlob, 'audio.wav');
 
       const response = await chatAPI.sendVoiceMessage(formData, chatId);
-
-      const audioUrl = response.data.audio_b64 
+      const audioUrl = response.data.audio_b64
         ? `data:audio/wav;base64,${response.data.audio_b64}`
         : undefined;
 
@@ -583,39 +546,24 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         audioUrl,
       };
 
-      setMessages(prev => [...prev, newMessage]);
+      setMessages((prev) => [...prev, newMessage]);
+      if (audioUrl) playMessageAudio(response.data.message_id, audioUrl, true);
 
-      // Start voice playback immediately in parallel with text display
-      if (audioUrl) {
-        playMessageAudio(response.data.message_id, audioUrl, true);
-      }
-
-      // If this created a new chat
-      if (!chatId && response.data.chat_id && onChatCreated) {
-        onChatCreated(response.data.chat_id);
-      }
-      
-      // If this is the first message for an existing chat, trigger title update for voice message
+      if (!chatId && response.data.chat_id && onChatCreated) onChatCreated(response.data.chat_id);
       if (chatId && onChatTitleUpdated && messages.length === 0) {
         const transcript = response.data.transcript || '';
         const words = transcript.trim().split(/\s+/);
-        const meaningfulWords = words.filter((word: string) => 
-          word.length > 2 && 
-          !['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'have', 'has', 'had', 'will', 'would', 'could', 'should', 'can', 'may', 'might', 'do', 'does', 'did', 'am', 'be', 'been', 'being', 'a', 'an', 'this', 'that', 'these', 'those', 'i', 'me', 'my', 'mine', 'you', 'your', 'yours', 'he', 'him', 'his', 'she', 'her', 'hers', 'it', 'its', 'we', 'us', 'our', 'ours', 'they', 'them', 'their', 'theirs'].includes(word.toLowerCase())
+        const meaningfulWords = words.filter(
+          (word: string) =>
+            word.length > 2 &&
+            !['the','and','or','but','in','on','at','to','for','of','with','by','is','are','was','were','have','has','had','will','would','could','should','can','may','might','do','does','did','am','be','been','being','a','an','this','that','these','those','i','me','my','mine','you','your','yours','he','him','his','she','her','hers','it','its','we','us','our','ours','they','them','their','theirs'].includes(word.toLowerCase())
         );
-        
         let titleWords;
-        if (meaningfulWords.length >= 3) {
-          titleWords = meaningfulWords.slice(0, 3);
-        } else if (meaningfulWords.length >= 2) {
-          titleWords = meaningfulWords.slice(0, 2);
-        } else if (meaningfulWords.length > 0) {
-          titleWords = meaningfulWords.slice(0, 1);
-        } else {
-          titleWords = words.slice(0, Math.min(3, words.length));
-        }
-        
-        const smartTitle = titleWords.map((word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
+        if (meaningfulWords.length >= 3) titleWords = meaningfulWords.slice(0, 3);
+        else if (meaningfulWords.length >= 2) titleWords = meaningfulWords.slice(0, 2);
+        else if (meaningfulWords.length > 0) titleWords = meaningfulWords.slice(0, 1);
+        else titleWords = words.slice(0, Math.min(3, words.length));
+        const smartTitle = titleWords.map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
         onChatTitleUpdated(chatId, smartTitle || 'New Chat');
       }
     } catch (error: any) {
@@ -631,53 +579,36 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
 
-  // Stop audio when user starts typing or recording
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Immediately stop all audio when user starts interacting
     stopAllAudio();
     stopStreaming();
     setInputValue(e.target.value);
   };
 
-  const handleInputFocus = () => {
-    // Stop voice immediately when user focuses on input
-    stopAllAudio();
-    stopStreaming();
-  };
+  const handleInputFocus = () => { stopAllAudio(); stopStreaming(); };
 
   const handleVoiceButtonClick = async () => {
-    // Stop any playing voice immediately when clicking voice button
     stopAllAudio();
     stopStreaming();
     await startRecording();
   };
 
-  // Comprehensive audio stopping functions
   const stopAllAudio = () => {
     if (currentAudio) {
       try {
-        // Immediately pause and reset
         currentAudio.pause();
         currentAudio.currentTime = 0;
-        // Remove event listeners to prevent conflicts
         currentAudio.onended = null;
         currentAudio.onerror = null;
         currentAudio.ontimeupdate = null;
         currentAudio.oncanplaythrough = null;
-      } catch (error) {
-        // Ignore errors when stopping audio
-        console.warn('Error stopping audio:', error);
-      }
+      } catch { /* ignore */ }
       setCurrentAudio(null);
     }
-    
-    // Reset all audio-related states
+    stopTTSQueue();
     setPlayingMessageId(null);
     setIsAudioPaused(false);
     setAudioPosition(0);
@@ -687,516 +618,525 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   };
 
   const stopStreaming = () => {
-    // Stop any ongoing streaming if applicable
-    // This function matches Chat.tsx pattern for consistency
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
+      streamAbortRef.current = null;
+    }
   };
 
-  const handleStartRecording = async () => {
-    // Stop any playing audio and streaming when starting to record (like Chat.tsx)
-    stopAllAudio();
-    stopStreaming();
-    await startRecording();
+  // ── Progressive TTS (plays sentence-by-sentence while text streams) ──
+  const fetchTTSBlob = async (text: string): Promise<Blob | null> => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(endpoints.speak(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) return null;
+      return await res.blob();
+    } catch {
+      return null;
+    }
   };
+
+  /** Plays TTS blobs in strict order (awaits each Promise in sequence). */
+  const playNextTTSChunk = async () => {
+    const q = ttsQueueRef.current;
+    if (q.playing) return;          // another instance already running
+    if (q.playIdx >= q.items.length) return; // nothing to play
+
+    q.playing = true;
+    const gen = q.gen;
+
+    while (q.gen === gen && q.playIdx < q.items.length) {
+      const blob = await q.items[q.playIdx];
+      q.playIdx++;
+
+      if (!blob || q.gen !== gen) continue; // stale or failed
+
+      await new Promise<void>((resolve) => {
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        q.audio = audio;
+        setPlayingMessageId(q.msgId);
+        setIsAudioPaused(false);
+
+        const onDone = () => {
+          URL.revokeObjectURL(url);
+          q.audio = null;
+          resolve();
+        };
+        audio.onended = onDone;
+        audio.onerror = onDone;
+        audio.play().catch(onDone);
+      });
+    }
+
+    q.playing = false;
+    // Pick up items added between while-exit and playing=false
+    if (q.gen === gen && q.playIdx < q.items.length) {
+      playNextTTSChunk();
+    } else if (q.gen === gen) {
+      setPlayingMessageId(null);
+    }
+  };
+
+  /** Enqueue a TTS chunk — fires the fetch immediately, playback awaits in order. */
+  const enqueueTTS = (text: string) => {
+    const q = ttsQueueRef.current;
+    const gen = q.gen;
+    const blobPromise = fetchTTSBlob(text).then((blob) => {
+      if (ttsQueueRef.current.gen !== gen) return null; // message changed, discard
+      return blob;
+    });
+    q.items.push(blobPromise);
+    playNextTTSChunk();
+  };
+
+  const stopTTSQueue = () => {
+    const q = ttsQueueRef.current;
+    q.items = [];
+    q.playIdx = 0;
+    if (q.audio) {
+      try { q.audio.pause(); } catch { /* */ }
+      q.audio = null;
+    }
+    q.playing = false;
+    q.gen++;   // invalidate any in-flight TTS fetches from previous message
+    q.msgId = 0;
+  };
+
+  // ── Suggested Prompts ──
+  const suggestedPrompts = [
+    { icon: <FiZap size={14} />, text: 'Explain quantum computing simply' },
+    { icon: <FiMessageCircle size={14} />, text: 'Help me write a professional email' },
+    { icon: <FiCommand size={14} />, text: 'Debug my Python code' },
+  ];
 
   return (
     <>
-      <MotionFlex 
-        direction="column" 
-        h="100%" 
+      <MotionFlex
+        direction="column"
+        h="100%"
         maxH="100%"
-        bg="transparent"
+        bg={chatAreaBg}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ duration: 0.5 }}
+        transition={{ duration: 0.4 }}
         overflow="hidden"
       >
         {/* Messages Area */}
-        <MotionBox 
-          flex={1} 
-          overflowY="auto" 
-          px={{ base: 4, md: 8 }} 
+        <Box
+          flex={1}
+          overflowY="auto"
+          px={{ base: 4, md: 6, lg: 8 }}
           py={6}
           className="hide-scrollbar"
-          position="relative"
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
         >
-          <VStack spacing={6} align="stretch" w="full">
-            {messages.length === 0 && !isLoading && (
-              <VStack spacing={6} py={20} align="center">
-                <MotionBox
-                  initial={{ scale: 0.8, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ duration: 0.6, delay: 0.2, type: 'spring' }}
-                >
-                  <HStack spacing={3}>
-                    <Box
-                      w={16}
-                      h={16}
-                      bgGradient="linear(135deg, brand.500 0%, brand.600 100%)"
-                      rounded="2xl"
-                      display="flex"
-                      alignItems="center"
-                      justifyContent="center"
-                      shadow="xl"
-                      className="floating"
-                      position="relative"
-                      _before={{
-                        content: '""',
-                        position: 'absolute',
-                        inset: '-2px',
-                        rounded: '2xl',
-                        p: '2px',
-                        bgGradient: 'linear(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0.1) 100%)',
-                        mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-                        maskComposite: 'subtract',
-                      }}
-                    >
-                      <Text color="white" fontWeight="black" fontSize="2xl">
-                        CC
-                      </Text>
-                    </Box>
-                  </HStack>
-                </MotionBox>
-                
-                <MotionBox
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ duration: 0.6, delay: 0.4 }}
-                  maxW="600px"
-                >
-                  <Box
-                    bg={assistantBg}
-                    backdropFilter="blur(20px)"
-                    p={8}
-                    rounded="3xl"
-                    border="1px solid"
-                    borderColor={borderColor}
-                    position="relative"
-                    shadow="glass"
-                    _hover={{ shadow: "glow" }}
-                    transition="all 0.3s"
+          <Box maxW="800px" mx="auto">
+            <VStack spacing={5} align="stretch" w="full">
+              {/* Welcome Screen */}
+              {messages.length === 0 && !isLoading && (
+                <VStack spacing={8} py={{ base: 12, md: 20 }} align="center">
+                  {/* AI Avatar */}
+                  <MotionBox
+                    initial={{ scale: 0.5, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ duration: 0.6, delay: 0.1, type: 'spring', stiffness: 200 }}
                   >
-                    <Text 
-                      fontSize="lg" 
-                      lineHeight="1.7"
-                      color={textColor}
-                      textAlign="center"
-                      fontWeight="medium"
-                    >
-                      Hello! I'm your <span className="gradient-text">CCRIPTER</span> assistant. 
-                      I can help you with questions, conversations, and voice interactions. 
-                      Ask me anything!
-                    </Text>
-                  </Box>
-                </MotionBox>
-              </VStack>
-            )}
-
-            {messages.map((message) => (
-              <VStack key={message.id} spacing={4} align="stretch" w="full">
-                {/* User Message */}
-                <MotionBox
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.4 }}
-                >
-                  <HStack justify="flex-end" spacing={3} w="full">
-                    <VStack align="flex-end" spacing={2} maxW="70%">
+                    <Box position="relative">
+                      <NeuralLogo size={72} />
+                      {/* Online indicator */}
                       <Box
-                        bg={userBg}
-                        color="white"
-                        p={5}
-                        rounded="3xl"
-                        roundedBottomRight="lg"
+                        position="absolute"
+                        bottom={0}
+                        right={0}
+                        w={4}
+                        h={4}
+                        bg="green.400"
+                        rounded="full"
+                        border="2px solid"
+                        borderColor={welcomeBg}
+                      />
+                    </Box>
+                  </MotionBox>
+
+                  {/* Greeting */}
+                  <MotionBox
+                    initial={{ y: 16, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ duration: 0.5, delay: 0.3 }}
+                    textAlign="center"
+                  >
+                    <Text
+                      fontFamily="heading"
+                      fontWeight="800"
+                      fontSize={{ base: '2xl', md: '3xl' }}
+                      letterSpacing="-0.03em"
+                      color={textColor}
+                      mb={2}
+                    >
+                      Hey{user?.name ? `, ${user.name.split(' ')[0]}` : ''}
+                    </Text>
+                    <Text color={subtleColor} fontSize={{ base: 'sm', md: 'md' }} maxW="400px" lineHeight="1.6">
+                      I'm your AI companion. Ask me anything, use voice, or upload documents to chat about.
+                    </Text>
+                  </MotionBox>
+
+                  {/* Suggested Prompts */}
+                  <MotionBox
+                    initial={{ y: 16, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ duration: 0.5, delay: 0.5 }}
+                    w="full"
+                    maxW="500px"
+                  >
+                    <VStack spacing={2} align="stretch">
+                      {suggestedPrompts.map((prompt, i) => (
+                        <Box
+                          key={i}
+                          as="button"
+                          onClick={() => { setInputValue(prompt.text); }}
+                          p={3.5}
+                          rounded="xl"
+                          bg={suggestBg}
+                          border="1px solid"
+                          borderColor={suggestBorder}
+                          _hover={{
+                            bg: suggestHoverBg,
+                            borderColor: suggestHoverBorder,
+                            transform: 'translateY(-1px)',
+                          }}
+                          transition="all 0.2s"
+                          textAlign="left"
+                          cursor="pointer"
+                        >
+                          <HStack spacing={3}>
+                            <Box color="brand.500">{prompt.icon}</Box>
+                            <Text fontSize="sm" color={subtleColor} fontWeight="500">
+                              {prompt.text}
+                            </Text>
+                          </HStack>
+                        </Box>
+                      ))}
+                    </VStack>
+                  </MotionBox>
+                </VStack>
+              )}
+
+              {/* Messages */}
+              {messages.map((message, idx) => (
+                <VStack key={message.id} spacing={3} align="stretch" w="full" className="msg-enter" style={{ animationDelay: `${idx * 0.05}s` }}>
+                  {/* User Message */}
+                  <HStack justify="flex-end" spacing={3} w="full" align="flex-end">
+                    <VStack align="flex-end" spacing={1} maxW={{ base: '85%', md: '70%' }}>
+                      <Box
+                        bg={userBubbleBg}
+                        color={userBubbleColor}
+                        px={4}
+                        py={3}
+                        rounded="2xl"
+                        roundedBottomRight="md"
+                        maxW="100%"
                         w="fit-content"
                         ml="auto"
-                        shadow="xl"
-                        position="relative"
-                        _hover={{ shadow: "glow", transform: "translateY(-1px)" }}
-                        transition="all 0.3s"
-                        backdropFilter="blur(10px)"
-                        border="1px solid rgba(255,255,255,0.2)"
+                        shadow="0 2px 8px rgba(245, 158, 11, 0.15)"
                       >
-                        <Text fontWeight="medium" lineHeight="1.5">{message.query}</Text>
+                        <Text fontSize="sm" fontWeight="500" lineHeight="1.6" color="surface.950" wordBreak="break-word">
+                          {message.query}
+                        </Text>
                       </Box>
-                      <Text fontSize="xs" color={subtleColor} mr={2}>
+                      <Text fontSize="xs" color={subtleColor} pr={1} opacity={0.7}>
                         {formatMessageTime(message.timestamp)}
                       </Text>
                     </VStack>
-                    <UserAvatar 
-                      size="md" 
-                      name={user?.name} 
-                      profilePicture={user?.profile_picture}
-                      borderColor={avatarBorder}
-                      shadow="lg"
-                    />
                   </HStack>
-                </MotionBox>
 
-                {/* Assistant Message */}
-                <MotionBox
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.4, delay: 0.1 }}
-                >
+                  {/* AI Response */}
                   <HStack justify="flex-start" spacing={3} align="flex-start" w="full">
-                    <Box
-                      w={12}
-                      h={12}
-                      bgGradient="linear(135deg, brand.500 0%, brand.600 100%)"
-                      rounded="xl"
-                      display="flex"
-                      alignItems="center"
-                      justifyContent="center"
-                      flexShrink={0}
-                      shadow="lg"
-                      border="2px solid"
-                      borderColor={avatarBorder}
-                      position="relative"
-                      _before={{
-                        content: '""',
-                        position: 'absolute',
-                        inset: '-1px',
-                        rounded: 'xl',
-                        p: '1px',
-                        bgGradient: 'linear(135deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 100%)',
-                        mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-                        maskComposite: 'subtract',
-                      }}
-                    >
-                      <Text color="white" fontWeight="black" fontSize="lg">
-                        CC
-                      </Text>
+                    {/* AI Avatar */}
+                    <Box flexShrink={0} mt={0.5}>
+                      <NeuralLogo size={28} />
                     </Box>
-                    
-                    <VStack align="flex-start" spacing={2} maxW="70%" flex={1}>
+
+                    <VStack align="flex-start" spacing={1} maxW={{ base: '85%', md: '75%' }} flex={1}>
                       <Box
-                        bg={assistantBg}
-                        backdropFilter="blur(20px)"
-                        p={6}
-                        rounded="3xl"
-                        roundedTopLeft="lg"
+                        bg={aiBubbleBg}
+                        backdropFilter="blur(12px)"
+                        px={4}
+                        py={3}
+                        rounded="2xl"
+                        roundedTopLeft="md"
                         w="fit-content"
                         border="1px solid"
-                        borderColor={borderColor}
-                        shadow="glass"
-                        _hover={{ shadow: "glow", transform: "translateY(-1px)" }}
-                        transition="all 0.3s"
-                        position="relative"
+                        borderColor={aiBubbleBorder}
                       >
-                        <Text 
-                          whiteSpace="pre-wrap" 
-                          lineHeight="1.6"
+                        <Text
+                          whiteSpace="pre-wrap"
+                          fontSize="sm"
+                          lineHeight="1.7"
                           color={textColor}
-                          fontWeight="medium"
                         >
                           {message.response}
                         </Text>
                       </Box>
-                      
-                      <HStack spacing={3} pl={2}>
-                        {/* Voice output button for all assistant messages */}
+
+                      <HStack spacing={2} pl={1}>
                         <IconButton
                           aria-label={
                             isAudioLoading && playingMessageId === message.id
-                              ? "Loading audio..."
-                              : playingMessageId === message.id 
-                                ? (isAudioPaused ? "Resume audio" : "Pause audio")
-                                : "Play audio"
+                              ? 'Loading...'
+                              : playingMessageId === message.id
+                              ? isAudioPaused ? 'Resume' : 'Pause'
+                              : 'Play'
                           }
                           icon={
                             isAudioLoading && playingMessageId === message.id
-                              ? <Spinner size="sm" />
-                              : playingMessageId === message.id 
-                                ? (isAudioPaused ? <FiVolume2 /> : <FiPause />) 
-                                : <FiVolume2 />
+                              ? <Spinner size="xs" />
+                              : playingMessageId === message.id
+                              ? isAudioPaused ? <FiVolume2 size={12} /> : <FiPause size={12} />
+                              : <FiVolume2 size={12} />
                           }
-                          size="sm"
+                          size="xs"
                           variant="ghost"
                           color={playingMessageId === message.id ? 'brand.500' : subtleColor}
-                          rounded="full"
+                          rounded="md"
                           disabled={isAudioLoading && playingMessageId === message.id}
-                          _hover={{
-                            color: 'brand.500',
-                            bg: brandBg,
-                            transform: 'scale(1.1)',
-                          }}
-                          transition="all 0.2s"
+                          _hover={{ color: 'brand.500', bg: audioHoverBg }}
                           onClick={async () => {
                             if (playingMessageId === message.id) {
-                              if (isAudioPaused) {
-                                await resumeCurrentAudio();
-                              } else {
-                                pauseCurrentAudio();
-                              }
+                              if (isAudioPaused) await resumeCurrentAudio();
+                              else pauseCurrentAudio();
                             } else if (message.audioUrl) {
-                              // Play existing audio if available
                               await playMessageAudio(message.id, message.audioUrl, true);
                             } else {
-                              // Synthesize text to speech with auto-play
                               await synthesizeText(message.response, message.id, true);
                             }
                           }}
                         />
-                        
-                        {/* Audio time display when playing */}
                         {playingMessageId === message.id && audioDuration > 0 && (
-                          <Text fontSize="xs" color={subtleColor} fontFamily="mono">
+                          <Text fontSize="xs" color={subtleColor} fontFamily="mono" opacity={0.7}>
                             {formatAudioTime(audioCurrentTime, audioDuration)}
                           </Text>
                         )}
-                        
-                        <Text fontSize="sm" color={subtleColor}>
+                        <Text fontSize="xs" color={subtleColor} opacity={0.5}>
                           {formatMessageTime(message.timestamp)}
                         </Text>
                       </HStack>
                     </VStack>
                   </HStack>
-                </MotionBox>
-              </VStack>
-            ))}
+                </VStack>
+              ))}
 
-            {isLoading && (
-              <MotionBox
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4 }}
-              >
-                <HStack justify="flex-start" spacing={3} align="flex-start" w="full">
-                  <Box
-                    w={12}
-                    h={12}
-                    bgGradient="linear(135deg, brand.500 0%, brand.600 100%)"
-                    rounded="xl"
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="center"
-                    className="pulse-glow"
-                  >
-                    <Text color="white" fontWeight="black" fontSize="lg">
-                      CC
-                    </Text>
-                  </Box>
-                  <Box 
-                    bg={assistantBg} 
-                    backdropFilter="blur(20px)"
-                    p={5} 
-                    rounded="3xl" 
-                    border="1px solid" 
-                    borderColor={borderColor}
-                    shadow="glass"
-                  >
-                    <HStack spacing={3}>
-                      <Spinner size="sm" color="brand.500" />
-                      <Text color={textColor} fontWeight="medium">Thinking...</Text>
-                    </HStack>
-                  </Box>
-                </HStack>
-              </MotionBox>
-            )}
-
-            <div ref={messagesEndRef} />
-          </VStack>
-        </MotionBox>
-
-        {/* Input Area - Clean and Simple */}
-        <Box
-          p={4}
-          borderTop="1px solid"
-          borderColor={borderColor}
-          bg={chatBgColor}
-        >
-          <Box maxW="4xl" mx="auto">
-            {/* Document Context Indicator */}
-            {selectedDocuments.length > 0 && (
-              <Box mb={3}>
-                <HStack
-                  p={3}
-                  bg={brandBg}
-                  rounded="lg"
-                  border="1px solid"
-                  borderColor="brand.300"
-                  spacing={3}
-                  justify="space-between"
+              {/* Thinking Indicator — hide once streaming response text starts appearing */}
+              {isLoading && !(messages.length > 0 && messages[messages.length - 1].user_id === '' && messages[messages.length - 1].response.length > 0) && (
+                <MotionBox
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
                 >
-                  <HStack spacing={2}>
-                    <FiFile color="orange" size={16} />
-                    <Text fontSize="sm" fontWeight="medium" color={textColor}>
-                      Chatting with {selectedDocuments.length} document{selectedDocuments.length > 1 ? 's' : ''}
-                    </Text>
-                    <Badge colorScheme="brand" variant="subtle">
-                      Context Enabled
-                    </Badge>
+                  <HStack spacing={3} align="flex-start" w="full">
+                    <Box flexShrink={0} className="pulse-glow">
+                      <NeuralLogo size={28} />
+                    </Box>
+                    <Box
+                      bg={aiBubbleBg}
+                      backdropFilter="blur(12px)"
+                      px={5}
+                      py={3.5}
+                      rounded="2xl"
+                      roundedTopLeft="md"
+                      border="1px solid"
+                      borderColor={aiBubbleBorder}
+                    >
+                      <div className="thinking-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                      </div>
+                    </Box>
                   </HStack>
-                  
-                  <HStack spacing={2}>
-                    {onDocumentPanelToggle && (
-                      <Tooltip label="Open document panel">
-                        <IconButton
-                          aria-label="Open documents"
-                          icon={<FiFolder />}
-                          size="xs"
-                          variant="ghost"
-                          onClick={onDocumentPanelToggle}
-                          color={subtleColor}
-                          _hover={{ color: 'brand.500' }}
-                        />
-                      </Tooltip>
-                    )}
-                    {onDocumentSelectionChange && (
-                      <Tooltip label="Clear document context">
-                        <IconButton
-                          aria-label="Clear documents"
-                          icon={<FiX />}
-                          size="xs"
-                          variant="ghost"
-                          onClick={() => onDocumentSelectionChange([])}
-                          color={subtleColor}
-                          _hover={{ color: 'red.500' }}
-                        />
-                      </Tooltip>
-                    )}
-                  </HStack>
+                </MotionBox>
+              )}
+
+              <div ref={messagesEndRef} />
+            </VStack>
+          </Box>
+        </Box>
+
+        {/* Input Area */}
+        <Box px={{ base: 3, md: 6, lg: 8 }} pb={{ base: 3, md: 4 }} pt={2}>
+          <Box maxW="800px" mx="auto">
+            {/* Document context */}
+            {selectedDocuments.length > 0 && (
+              <HStack
+                mb={2}
+                p={2.5}
+                rounded="xl"
+                bg={docContextBg}
+                border="1px solid"
+                borderColor={docContextBorder}
+                justify="space-between"
+                fontSize="xs"
+              >
+                <HStack spacing={2}>
+                  <FiFile size={13} color="#f59e0b" />
+                  <Text fontWeight="600" color={textColor}>
+                    {selectedDocuments.length} doc{selectedDocuments.length > 1 ? 's' : ''} attached
+                  </Text>
                 </HStack>
-              </Box>
+                {onDocumentSelectionChange && (
+                  <IconButton
+                    aria-label="Clear"
+                    icon={<FiX size={13} />}
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => onDocumentSelectionChange([])}
+                    color={subtleColor}
+                    _hover={{ color: 'red.400' }}
+                  />
+                )}
+              </HStack>
             )}
-            
-            <MotionBox
+
+            {/* Input Bar */}
+            <HStack
               bg={inputBg}
-              rounded="xl"
-              border="1px solid"
-              borderColor={borderColor}
-              p={3}
+              backdropFilter="blur(16px) saturate(1.2)"
+              rounded="2xl"
+              border="1.5px solid"
+              borderColor={inputBorderColor}
+              p={2}
+              spacing={2}
               _focusWithin={{
-                borderColor: "brand.500",
+                borderColor: inputFocusBorder,
+                boxShadow: '0 0 0 2px rgba(245, 158, 11, 0.08)',
               }}
               transition="all 0.2s"
             >
-              <HStack spacing={3}>
-                <Box flex={1}>
-                  <Input
-                    value={inputValue}
-                    onChange={handleInputChange}
-                    onKeyPress={handleKeyPress}
-                    onFocus={handleInputFocus}
-                    placeholder="Type your message or record voice..."
-                    disabled={isLoading}
-                    variant="unstyled"
-                    size="lg"
-                    fontSize="md"
-                    _placeholder={{ color: subtleColor }}
-                    color={textColor}
-                  />
-                </Box>
-                
-                <HStack spacing={2}>
-                  <FileUpload
-                    onFileUploaded={(document: Document) => {
-                      toast({
-                        title: 'Document uploaded',
-                        description: `${document.filename} is ready for chat`,
-                        status: 'success',
-                        duration: 3000,
-                      });
-                      // Notify parent about document upload
-                      onDocumentUploaded?.();
-                    }}
-                    isDisabled={isLoading}
-                  />
-                  
-                  <IconButton
-                    aria-label="Start recording"
-                    icon={<FiMic />}
-                    onClick={handleVoiceButtonClick}
-                    variant="ghost"
-                    size="lg"
-                    disabled={isLoading}
-                    color={subtleColor}
-                    rounded="xl"
-                    _hover={{
-                      bg: brandBg,
-                      color: "brand.500",
-                      transform: "scale(1.1)",
-                    }}
-                    transition="all 0.2s"
-                  />
-                  
-                  <IconButton
-                    aria-label="Send message"
-                    icon={<FiSend />}
-                    onClick={sendMessage}
-                    colorScheme="brand"
-                    size="lg"
-                    rounded="xl"
-                    disabled={isLoading || !inputValue.trim()}
-                    bgGradient="linear(135deg, brand.500 0%, brand.600 100%)"
-                    color="white"
-                    _hover={{
-                      bgGradient: "linear(135deg, brand.600 0%, brand.700 100%)",
-                      transform: "scale(1.05)",
-                    }}
-                    _active={{
-                      transform: "scale(0.95)",
-                    }}
-                    _disabled={{
-                      opacity: 0.6,
-                      cursor: "not-allowed",
-                      transform: "none",
-                    }}
-                    transition="all 0.2s"
-                  />
-                </HStack>
+              <Input
+                value={inputValue}
+                onChange={handleInputChange}
+                onKeyPress={handleKeyPress}
+                onFocus={handleInputFocus}
+                placeholder="Message CCRIPTER..."
+                disabled={isLoading}
+                variant="unstyled"
+                size="md"
+                fontSize="sm"
+                px={3}
+                _placeholder={{ color: placeholderColor }}
+                color={textColor}
+              />
+
+              <HStack spacing={1}>
+                <FileUpload
+                  onFileUploaded={(document: Document) => {
+                    toast({
+                      title: 'Document uploaded',
+                      description: `${document.filename} attached to chat`,
+                      status: 'success',
+                      duration: 2000,
+                    });
+                    // Auto-select the uploaded document for chat context
+                    if (onDocumentSelectionChange && !selectedDocuments.includes(document.id)) {
+                      onDocumentSelectionChange([...selectedDocuments, document.id]);
+                    }
+                  }}
+                  isDisabled={isLoading}
+                />
+
+                <IconButton
+                  aria-label="Voice"
+                  icon={<FiMic size={16} />}
+                  onClick={handleVoiceButtonClick}
+                  variant="ghost"
+                  size="sm"
+                  disabled={isLoading}
+                  color={subtleColor}
+                  rounded="xl"
+                  _hover={{ color: 'brand.500', bg: audioHoverBg }}
+                />
+
+                <IconButton
+                  aria-label="Send"
+                  icon={<FiSend size={16} />}
+                  onClick={sendMessage}
+                  size="sm"
+                  rounded="xl"
+                  disabled={isLoading || !inputValue.trim()}
+                  bg="brand.500"
+                  color="surface.950"
+                  _hover={{
+                    bg: 'brand.400',
+                    transform: 'scale(1.05)',
+                  }}
+                  _active={{ transform: 'scale(0.95)' }}
+                  _disabled={{ opacity: 0.4, cursor: 'not-allowed', transform: 'none' }}
+                  transition="all 0.15s"
+                />
               </HStack>
-            </MotionBox>
+            </HStack>
+
+            <Text textAlign="center" fontSize="xs" color={subtleColor} mt={2} opacity={0.5}>
+              CCRIPTER can make mistakes. Verify important info.
+            </Text>
           </Box>
         </Box>
       </MotionFlex>
 
       {/* Recording Modal */}
       <Modal isOpen={isRecordingModalOpen} onClose={() => {}} closeOnOverlayClick={false}>
-        <ModalOverlay bg="blackAlpha.300" />
-        <ModalContent bg={chatBgColor} rounded="2xl" mx={4}>
+        <ModalOverlay bg="blackAlpha.700" backdropFilter="blur(8px)" />
+        <ModalContent bg={recordingModalBg} rounded="2xl" mx={4} maxW="360px">
           <ModalBody p={8}>
             <VStack spacing={6}>
-              <Box textAlign="center">
-                <Text fontSize="lg" fontWeight="semibold" mb={2}>
-                  Recording...
+              <VStack spacing={2}>
+                <Text fontFamily="heading" fontSize="lg" fontWeight="700" color={textColor}>
+                  Listening...
                 </Text>
-                <Text color="gray.500">
-                  Speak now, your message is being recorded
+                <Text color={subtleColor} fontSize="sm">
+                  Speak now
                 </Text>
+              </VStack>
+
+              {/* Recording Wave */}
+              <Box>
+                <div className="recording-wave">
+                  <span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span>
+                </div>
               </Box>
 
-              <Box w="full">
-                <Progress
-                  value={(recordingTime % 60) * (100 / 60)}
-                  colorScheme="orange"
-                  size="sm"
-                  rounded="full"
-                />
-                <Text textAlign="center" mt={2} fontFamily="mono">
-                  {formatTime(recordingTime)}
-                </Text>
-              </Box>
+              <Text fontFamily="mono" fontSize="2xl" fontWeight="600" color={textColor}>
+                {formatTime(recordingTime)}
+              </Text>
 
               <HStack spacing={4}>
                 <IconButton
-                  aria-label="Cancel recording"
-                  icon={<FiX />}
+                  aria-label="Cancel"
+                  icon={<FiX size={20} />}
                   onClick={cancelRecording}
-                  colorScheme="gray"
+                  variant="ghost"
                   size="lg"
                   rounded="full"
+                  color={subtleColor}
+                  _hover={{ color: 'red.400', bg: cancelHoverBg }}
                 />
                 <IconButton
-                  aria-label="Stop recording"
-                  icon={<FiCheck />}
+                  aria-label="Send"
+                  icon={<FiCheck size={20} />}
                   onClick={stopRecording}
-                  colorScheme="orange"
                   size="lg"
                   rounded="full"
+                  bg="brand.500"
+                  color="surface.950"
+                  _hover={{ bg: 'brand.400', transform: 'scale(1.05)' }}
+                  shadow="0 4px 20px rgba(245, 158, 11, 0.3)"
                 />
               </HStack>
             </VStack>

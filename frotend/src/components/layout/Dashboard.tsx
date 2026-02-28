@@ -4,77 +4,56 @@ import { motion } from 'framer-motion';
 import Sidebar from './Sidebar';
 import ChatArea from '../chat/ChatArea';
 import Header from './Header';
-import DocumentPanel from '../common/DocumentPanel';
 
 const MotionBox = motion(Box);
 
 const Dashboard: React.FC = () => {
   const [currentChatId, setCurrentChatId] = useState<number | undefined>();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isDocumentPanelCollapsed, setIsDocumentPanelCollapsed] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [selectedDocuments, setSelectedDocuments] = useState<number[]>([]);
-  const [documentRefreshTrigger, setDocumentRefreshTrigger] = useState(0);
-  
+
   const isMobile = useBreakpointValue({ base: true, md: false });
-  const bgGradient = useColorModeValue(
-    'linear(135deg, gray.25 0%, gray.50 100%)',
-    'linear(135deg, gray.950 0%, gray.900 100%)'
-  );
-  const documentPanelBorderColor = useColorModeValue('glass-border', 'glass-border');
-  const documentPanelBg = useColorModeValue('glass-bg', 'glass-bg');
 
-  const handleChatSelect = (chatId: number) => {
-    setCurrentChatId(chatId);
-  };
-
-  const handleNewChat = () => {
-    setCurrentChatId(undefined);
-  };
-
+  const handleChatSelect = (chatId: number) => setCurrentChatId(chatId);
+  const handleNewChat = () => setCurrentChatId(undefined);
   const handleChatCreated = (chatId: number) => {
     setCurrentChatId(chatId);
-    setRefreshTrigger(prev => prev + 1); // Trigger sidebar refresh
+    setRefreshTrigger((prev) => prev + 1);
   };
-
-  const handleChatTitleUpdated = (chatId: number, title: string) => {
-    // Trigger sidebar refresh when chat title is updated
-    setRefreshTrigger(prev => prev + 1);
-  };
-
-  const handleSidebarToggle = () => {
-    setIsSidebarCollapsed(!isSidebarCollapsed);
-  };
-
-  const handleDocumentPanelToggle = () => {
-    setIsDocumentPanelCollapsed(!isDocumentPanelCollapsed);
-  };
-
-  const handleDocumentSelectionChange = (documentIds: number[]) => {
-    setSelectedDocuments(documentIds);
-  };
-
-  const handleDocumentUploaded = () => {
-    setDocumentRefreshTrigger(prev => prev + 1);
-  };
+  const handleChatTitleUpdated = () => setRefreshTrigger((prev) => prev + 1);
+  const handleSidebarToggle = () => setIsSidebarCollapsed(!isSidebarCollapsed);
+  const handleDocumentSelectionChange = (documentIds: number[]) => setSelectedDocuments(documentIds);
 
   return (
-    <Flex direction="column" h="100vh" w="100vw" bg={bgGradient} overflow="hidden">
-      {/* Header - Fixed at top */}
+    <Flex
+      direction="column"
+      h="100vh"
+      w="100vw"
+      overflow="hidden"
+      className={useColorModeValue('mesh-gradient-light', 'mesh-gradient-dark')}
+    >
+      {/* Header */}
       <Box flexShrink={0}>
         <Header onSidebarToggle={handleSidebarToggle} />
       </Box>
-      
-      {/* Main content area - Three column layout */}
+
+      {/* Main content */}
       <Flex flex={1} position="relative" overflow="hidden" minH={0}>
-        {/* Left Sidebar - Chat List */}
+        {/* Sidebar */}
         <MotionBox
           initial={false}
           animate={{
-            width: isMobile ? (isSidebarCollapsed ? '0' : '100%') : (isSidebarCollapsed ? '80px' : '320px'),
+            width: isMobile
+              ? isSidebarCollapsed
+                ? '0'
+                : '100%'
+              : isSidebarCollapsed
+              ? '72px'
+              : '280px',
             opacity: isMobile && isSidebarCollapsed ? 0 : 1,
           }}
-          transition={{ duration: 0.3, ease: 'easeInOut' }}
+          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
           overflow="hidden"
           position={isMobile ? 'absolute' : 'relative'}
           zIndex={isMobile ? 10 : 'auto'}
@@ -89,21 +68,13 @@ const Dashboard: React.FC = () => {
             refreshTrigger={refreshTrigger}
             selectedDocuments={selectedDocuments}
             onDocumentSelectionChange={handleDocumentSelectionChange}
-            documentRefreshTrigger={documentRefreshTrigger}
-            showDocuments={false} // Don't show documents in left sidebar anymore
+            documentRefreshTrigger={0}
+            showDocuments={false}
           />
         </MotionBox>
-        
-        {/* Center - Chat Area */}
-        <MotionBox
-          flex={1}
-          minWidth={0}
-          initial={false}
-          animate={{
-            marginLeft: isMobile ? '0' : '0',
-          }}
-          transition={{ duration: 0.3, ease: 'easeInOut' }}
-        >
+
+        {/* Chat Area */}
+        <Box flex={1} minWidth={0}>
           <ChatArea
             chatId={currentChatId}
             onChatCreated={handleChatCreated}
@@ -111,38 +82,10 @@ const Dashboard: React.FC = () => {
             isSidebarCollapsed={isSidebarCollapsed}
             selectedDocuments={selectedDocuments}
             onDocumentSelectionChange={handleDocumentSelectionChange}
-            onDocumentUploaded={handleDocumentUploaded}
-            onDocumentPanelToggle={handleDocumentPanelToggle}
           />
-        </MotionBox>
-
-        {/* Right Sidebar - Document Panel */}
-        {!isMobile && (
-          <MotionBox
-            initial={false}
-            animate={{
-              width: isDocumentPanelCollapsed ? '60px' : '320px',
-              opacity: 1,
-            }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-            overflow="hidden"
-            h="full"
-            borderLeft="1px solid"
-            borderColor={documentPanelBorderColor}
-            bg={documentPanelBg}
-            backdropFilter="blur(20px)"
-          >
-            <DocumentPanel
-              isCollapsed={isDocumentPanelCollapsed}
-              onToggle={handleDocumentPanelToggle}
-              selectedDocuments={selectedDocuments}
-              onDocumentSelectionChange={handleDocumentSelectionChange}
-              refreshTrigger={documentRefreshTrigger}
-            />
-          </MotionBox>
-        )}
+        </Box>
       </Flex>
-      
+
       {/* Mobile overlay */}
       {isMobile && !isSidebarCollapsed && (
         <MotionBox
@@ -151,14 +94,13 @@ const Dashboard: React.FC = () => {
           left={0}
           right={0}
           bottom={0}
-          bg="blackAlpha.600"
+          bg="blackAlpha.700"
           backdropFilter="blur(4px)"
           zIndex={5}
           onClick={() => setIsSidebarCollapsed(true)}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
         />
       )}
     </Flex>

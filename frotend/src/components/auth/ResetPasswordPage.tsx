@@ -31,6 +31,7 @@ import { FiMail, FiLock, FiArrowLeft, FiEye, FiEyeOff } from 'react-icons/fi';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext'; // Added useAuth
 import ThemeToggle from '../common/ThemeToggle';
+import NeuralLogo from '../common/NeuralLogo';
 
 const MotionBox = motion(Box);
 const MotionVStack = motion(VStack);
@@ -281,45 +282,16 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = () => {
               {/* Logo and Header - matching login page exactly */}
               <VStack spacing={6}>
                 <MotionBox
-                  w={16}
-                  h={16}
-                  bgGradient="linear(135deg, brand.500 0%, brand.600 100%)"
-                  borderRadius="xl"
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="center"
-                  transform="rotate(-15deg)"
-                  shadow="lg"
-                  position="relative"
-                  initial={{ rotate: -45, scale: 0 }}
-                  animate={{ rotate: -15, scale: 1 }}
-                  transition={{ 
-                    duration: 0.6, 
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{
+                    duration: 0.6,
                     delay: 0.3,
                     type: "spring",
                     stiffness: 200
                   }}
                 >
-                  <Text 
-                    color="white" 
-                    fontWeight="bold" 
-                    fontSize="xl"
-                    transform="rotate(15deg)"
-                    fontFamily="mono"
-                  >
-                    CC
-                  </Text>
-                  
-                  {/* Subtle glow effect */}
-                  <Box
-                    position="absolute"
-                    inset={-2}
-                    bgGradient="linear(135deg, brand.400, brand.600)"
-                    borderRadius="xl"
-                    opacity={0.3}
-                    filter="blur(8px)"
-                    zIndex={-1}
-                  />
+                  <NeuralLogo size={56} />
                 </MotionBox>
                 
                 <VStack spacing={2}>

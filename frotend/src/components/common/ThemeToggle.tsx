@@ -6,9 +6,6 @@ import {
   Tooltip,
 } from '@chakra-ui/react';
 import { FiSun, FiMoon } from 'react-icons/fi';
-import { motion } from 'framer-motion';
-
-const MotionIconButton = motion(IconButton);
 
 interface ThemeToggleProps {
   position?: 'absolute' | 'relative';
@@ -25,40 +22,33 @@ const ThemeToggle: React.FC<ThemeToggleProps> = ({
 }) => {
   const { colorMode, toggleColorMode } = useColorMode();
   const isDark = colorMode === 'dark';
-  
-  const bgColor = useColorModeValue('white', 'gray.800');
-  const borderColor = useColorModeValue('gray.200', 'gray.600');
-  const iconColor = useColorModeValue('gray.600', 'gray.300');
 
   return (
-    <Tooltip 
+    <Tooltip
       label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
       placement="left"
       hasArrow
     >
-      <MotionIconButton
+      <IconButton
         aria-label="Toggle theme"
-        icon={isDark ? <FiSun /> : <FiMoon />}
+        icon={isDark ? <FiSun size={16} /> : <FiMoon size={16} />}
         onClick={toggleColorMode}
         position={position}
         top={top}
         right={right}
         size={size}
-        bg={bgColor}
-        color={iconColor}
+        bg={useColorModeValue('white', 'whiteAlpha.100')}
+        color={useColorModeValue('surface.600', 'surface.300')}
         border="1px solid"
-        borderColor={borderColor}
+        borderColor={useColorModeValue('surface.200', 'whiteAlpha.100')}
         borderRadius="xl"
-        shadow="md"
+        shadow="sm"
         _hover={{
-          bg: useColorModeValue('gray.50', 'gray.700'),
+          bg: useColorModeValue('surface.50', 'whiteAlpha.200'),
+          color: 'brand.500',
           transform: 'scale(1.05)',
         }}
-        _active={{
-          transform: 'scale(0.95)',
-        }}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
+        _active={{ transform: 'scale(0.95)' }}
         transition="all 0.2s"
         zIndex={10}
       />

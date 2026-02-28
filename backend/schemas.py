@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     query: str
     chat_id: Optional[int] = None
+    document_ids: Optional[List[int]] = None
 
 class ChatResponse(BaseModel):
     message_id: int

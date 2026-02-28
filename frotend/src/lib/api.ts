@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Default to local backend for development (override via REACT_APP_API_BASE on deploy)
-export const API_BASE = process.env.REACT_APP_API_BASE || "https://f1580261af9f.ngrok-free.app";
+export const API_BASE = process.env.REACT_APP_API_BASE || "http://127.0.0.1:8000";
 
 // Create axios instance with auth interceptor
 const api = axios.create({

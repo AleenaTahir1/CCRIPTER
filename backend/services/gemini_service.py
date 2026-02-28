@@ -20,10 +20,11 @@ def _get_model():
     global _model
     if _model is None:
         api_key = os.getenv("GEMINI_API_KEY")
-        model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY not set")
         genai.configure(api_key=api_key)
+        print(f"[gemini_service] Initializing model: {model_name}")
         _model = genai.GenerativeModel(model_name)
     return _model
 
@@ -51,3 +52,21 @@ async def generate_reply(system_prompt: str, history_text: str, query: str) -> s
 
     resp = await anyio.to_thread.run_sync(_call)
     return (getattr(resp, "text", "") or "").strip()
+
+
+def generate_reply_stream(system_prompt: str, history_text: str, query: str):
+    """Synchronous generator that yields text chunks from Gemini streaming API."""
+    model = _get_model()
+
+    prompt = (
+        f"{system_prompt}\n\n"
+        f"Conversation so far:\n{history_text}\n\n"
+        f"User: {query}\n"
+        f"Assistant:"
+    )
+
+    response = model.generate_content(prompt, stream=True)
+    for chunk in response:
+        text = getattr(chunk, "text", None)
+        if text:
+            yield text
